@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iNat ID trainer</title>
+    <link rel="stylesheet" href="styles.css">
+</head><body>
+    <header>
+        <h1>Welcome to the iNat ID trainer!</h1>
+    </header>
+    <div id="taxon-step">
+        <p>Which taxonomic group would you like to practice identifying?</p>
+        <input type="text" id="taxonomic-group" name="taxonomic-group" placeholder="e.g. Aves, Lepidoptera, Viridiplantae">
+        <button id="taxon-continue">Continue</button>
+    </div>
+
+    <div id="region-step" style="display:none;">
+        <p>Which geographic region do you want to train for?</p>
+        <input type="text" id="region" name="region" placeholder="e.g. Global, Nearctic, Neotropics, Europe">
+        <div>
+            <button id="region-back">Back</button>
+            <button id="region-continue">Start Training</button>
+        </div>
+    </div>
+
+    <script>
+        const taxonContinue = document.getElementById('taxon-continue');
+        const regionContinue = document.getElementById('region-continue');
+        const regionBack = document.getElementById('region-back');
+
+        const taxonStep = document.getElementById('taxon-step');
+        const regionStep = document.getElementById('region-step');
+
+        function showStep(step) {
+            taxonStep.style.display = step === 'taxon' ? '' : 'none';
+            regionStep.style.display = step === 'region' ? '' : 'none';
+        }
+
+        taxonContinue.addEventListener('click', function() {
+            const group = document.getElementById('taxonomic-group').value.trim();
+            // Optionally validate group here
+            showStep('region');
+            document.getElementById('region').focus();
+        });
+
+        regionBack.addEventListener('click', function() {
+            showStep('taxon');
+            document.getElementById('taxonomic-group').focus();
+        });
+
+        regionContinue.addEventListener('click', function() {
+            const group = document.getElementById('taxonomic-group').value.trim();
+            const region = document.getElementById('region').value.trim();
+            // Navigate to training.html with taxon and region as query params
+            const params = new URLSearchParams();
+            if (group) params.append('taxon', group);
+            if (region) params.append('region', region);
+            window.location.href = 'training.html' + (params.toString() ? '?' + params.toString() : '');
+        });
+    </script>
+</body>
+</html>

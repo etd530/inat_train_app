@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Training — iNat ID trainer</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        #training-image {
+            max-width: 500px;
+            max-height: 500px;
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        #loading {
+            font-style: italic;
+            color: #666;
+        }
+        #error {
+            color: #d9534f;
+            padding: 10px;
+            background-color: #f2dede;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Training for </h1>
+    </header>
+    <main>
+        <p id="loading">Loading a random specimen...</p>
+        <div id="error" style="display:none;"></div>
+        <img id="training-image" style="display:none;" alt="Training image from iNaturalist">
+        <p id="info" style="display:none;"></p>
+        <p id="species-id" style="display:none;"></p>
+        <div>
+            <button id="show-id-btn" style="display:none;">Show ID</button>
+            <button id="next-btn" style="display:none;">Next specimen</button>
+            <button id="back-btn">Back to start</button>
+        </div>
+    </main>
+
+    <script>
+        function getQueryParam(name) {
+            const params = new URLSearchParams(window.location.search);
+            return params.get(name) || '';
+        }
+
+        const taxon = getQueryParam('taxon');
+        const region = getQueryParam('region');
+        let idVisible = false;
+
+        // Print regionName for debugging
+        console.log('Region from query param:', region);
+
+        async function fetchPlaceID(regionName) {
+            try {
+                const response = await fetch(`https://api.inaturalist.org/v1/places/autocomplete?q=${encodeURIComponent(regionName)}`);
+                if (!response.ok) throw new Error('Failed to fetch place ID');
+                const data = await response.json();
+                if (data.results && data.results.length > 0) {
+                    return data.results[0].id; // Return the first matching place ID
+                } else {
+                    throw new Error('No matching place found');
+                }
+            } catch (err) {
+                console.error(err);
+                return null;
+            }
+        }
+
+        async function fetchTaxonID(taxonName) {
+            try {
+                const response = await fetch(`https://api.inaturalist.org/v1/taxa/autocomplete?q=${encodeURIComponent(taxonName)}`);
+                if (!response.ok) throw new Error('Failed to fetch taxon ID');
+                const data = await response.json();
+                if (data.results && data.results.length > 0) {
+                    return data.results[0].id; // Return the first matching taxon ID
+                } else {
+                    throw new Error('No matching taxon found');
+                }
+            } catch (err) {
+                console.error(err);
+                return null;
+            }
+        }
+
+        async function fetchRandomObservation(placeID, taxonID) {
+            try {
+                const loading = document.getElementById('loading');
+                const error = document.getElementById('error');
+                const image = document.getElementById('training-image');
+                const info = document.getElementById('info');
+                const speciesIdEl = document.getElementById('species-id');
+                const nextBtn = document.getElementById('next-btn');
+                const showIdBtn = document.getElementById('show-id-btn');
+
+                loading.style.display = 'block';
+                error.style.display = 'none';
+                image.style.display = 'none';
+                info.style.display = 'none';
+                speciesIdEl.style.display = 'none';
+                nextBtn.style.display = 'none';
+                showIdBtn.style.display = 'none';
+                idVisible = false;
+
+                // Print out the current filters for debugging
+                console.log('Fetching observation with filters:');
+                console.log('Taxon:', taxon);
+                console.log('Region:', region);
+
+                // Build API query
+                const randomPage = Math.floor(Math.random() * 10) + 1;
+                const randomYear = 2000 + Math.floor(Math.random() * 26); // Random year between 2000 and 2026
+                let url = 'https://api.inaturalist.org/v1/observations'    
+                + '?year=' + randomYear
+                + '&page=' + randomPage
+                + '&taxon_id=' + taxonID     // Papilionoidea taxon ID
+                + '&place_id=' + placeID
+                + '&order_by=random'
+                //+ '&project_id=papallones-de-catalunya-butterflies-of-catalonia' // Project ID for Catalonia butterflies
+                + '&verifiable=true'
+                + '&quality_grade=research';
+
+                // if (taxon) {
+                //     url += '&taxon_name=' + encodeURIComponent(taxon);
+                // }
+                // if (region) {
+                //     url += '&place_name=' + encodeURIComponent(region);
+                // }
+
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to fetch from iNaturalist API');
+
+                const data = await response.json();
+                if (!data.results || data.results.length === 0) {
+                    throw new Error('No observations found matching your criteria');
+                }
+
+                // Pick a random observation
+                const randomObs = data.results[Math.floor(Math.random() * data.results.length)];
+                
+                // Get the first photo
+                if (!randomObs.photos || randomObs.photos.length === 0) {
+                    throw new Error('Observation has no photos');
+                }
+
+                const photo = randomObs.photos[0];
+                const imageUrl = photo.url.replace('square', 'medium');
+
+                image.src = imageUrl;
+                image.style.display = 'block';
+                loading.style.display = 'none';
+                nextBtn.style.display = 'inline-block';
+                showIdBtn.style.display = 'inline-block';
+
+                // Display species ID (initially hidden)
+                const speciesName = randomObs.species_guess || 'Unknown species';
+                speciesIdEl.innerHTML = `<strong>${speciesName}</strong>`;
+                
+                // Display info without species name
+                const date = new Date(randomObs.observed_on).toLocaleDateString();
+                const obsUrl = `https://www.inaturalist.org/observations/${randomObs.id}`;
+                info.innerHTML = `Observed: ${date} | <a href="${obsUrl}" target="_blank">View observation</a>`;
+                info.style.display = 'block';
+
+            } catch (err) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').textContent = `Error: ${err.message}`;
+                document.getElementById('error').style.display = 'block';
+                console.error(err);
+            }
+        }
+
+        document.getElementById('show-id-btn').addEventListener('click', function() {
+            const speciesIdEl = document.getElementById('species-id');
+            idVisible = !idVisible;
+            speciesIdEl.style.display = idVisible ? 'block' : 'none';
+            this.textContent = idVisible ? 'Hide ID' : 'Show ID';
+        });
+
+        document.getElementById('next-btn').addEventListener('click', fetchRandomObservation);
+
+        document.getElementById('back-btn').addEventListener('click', function() {
+            window.location.href = 'main.html';
+        });
+        
+        // Get place ID, then taxon ID, then fetch random observation
+        let placeId;
+        fetchPlaceID(region).then(id => {
+            placeId = id;
+            if (placeId) {
+                fetchTaxonID(taxon).then(taxonId => {
+                    if (taxonId) {
+                        console.log('Using taxon ID:', taxonId);
+                        fetchRandomObservation(placeId, taxonId);
+                    } else {
+                        console.warn('Could not find taxon ID for taxon:', taxon);
+                    }
+                });
+                console.log('Using place ID:', placeId);
+            } else {
+                console.warn('Could not find place ID for region:', region);
+            }
+        });
+ 
+    </script>
+</body>
+</html>
