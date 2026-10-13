@@ -7,22 +7,33 @@
     <link rel="stylesheet" href="styles.css">
 </head><body>
     <header>
-        <h1>Welcome to the iNat ID trainer!</h1>
-    </header>
-    <div id="taxon-step">
-        <p>Which taxonomic group would you like to practice identifying?</p>
-        <input type="text" id="taxonomic-group" name="taxonomic-group" placeholder="e.g. Aves, Lepidoptera, Viridiplantae">
-        <button id="taxon-continue">Continue</button>
-    </div>
-
-    <div id="region-step" style="display:none;">
-        <p>Which geographic region do you want to train for?</p>
-        <input type="text" id="region" name="region" placeholder="e.g. Global, Nearctic, Neotropics, Europe">
         <div>
-            <button id="region-back">Back</button>
-            <button id="region-continue">Start Training</button>
+            <span class="brand">iNat ID trainer</span>
+            <h1>Learn to identify organisms with real iNaturalist observations</h1>
         </div>
-    </div>
+    </header>
+    <main>
+        <section class="card start-card">
+            <div id="taxon-step">
+                <div class="step-label">Step 1 of 2</div>
+                <p><label for="taxonomic-group">Which taxonomic group would you like to practice identifying?</label></p>
+                <input type="text" id="taxonomic-group" name="taxonomic-group" placeholder="e.g. Aves, Lepidoptera, Viridiplantae">
+                <div class="button-row">
+                    <button id="taxon-continue" class="primary">Continue</button>
+                </div>
+            </div>
+
+            <div id="region-step" style="display:none;">
+                <div class="step-label">Step 2 of 2</div>
+                <p><label for="region">Which geographic region do you want to train for?</label></p>
+                <input type="text" id="region" name="region" placeholder="e.g. Global, Nearctic, Neotropics, Europe">
+                <div class="button-row">
+                    <button id="region-continue" class="primary">Start training</button>
+                    <button id="region-back">Back</button>
+                </div>
+            </div>
+        </section>
+    </main>
 
     <script>
         const taxonContinue = document.getElementById('taxon-continue');
@@ -57,6 +68,14 @@
             if (group) params.append('taxon', group);
             if (region) params.append('region', region);
             window.location.href = 'training.html' + (params.toString() ? '?' + params.toString() : '');
+        });
+
+        // Pressing Enter in a text box continues to the next step
+        document.getElementById('taxonomic-group').addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') taxonContinue.click();
+        });
+        document.getElementById('region').addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') regionContinue.click();
         });
     </script>
 </body>
