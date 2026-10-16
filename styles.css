@@ -461,3 +461,157 @@ input[type="text"]:disabled {
         flex-direction: column;
     }
 }
+
+/* ---------- Zoom viewer ---------- */
+
+#training-image {
+    cursor: zoom-in;
+}
+
+#carousel-frame #photo-zoom {
+    top: 12px;
+    right: 12px;
+    transform: none;
+    width: 38px;
+    height: 38px;
+    font-size: 1.2rem;
+}
+
+#carousel-frame #photo-zoom:active {
+    transform: scale(0.95);
+}
+
+body.viewer-active {
+    overflow: hidden;
+}
+
+#viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 2000; /* above Leaflet's controls */
+    background: #0b0d0c;
+}
+
+#viewer[hidden],
+#viewer [hidden] {
+    display: none;
+}
+
+#viewer-stage {
+    position: absolute;
+    inset: 0 0 56px;
+    overflow: hidden;
+}
+
+#viewer-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+#viewer-image:active {
+    cursor: grabbing;
+}
+
+#viewer button {
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #f4f1e8;
+}
+
+#viewer button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+#viewer-toolbar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 16px;
+    color: #c9d1ca;
+    font-size: 0.9rem;
+}
+
+#viewer-counter {
+    margin-right: auto;
+}
+
+#viewer-status {
+    font-style: italic;
+}
+
+#viewer-toolbar button {
+    min-width: 40px;
+    height: 40px;
+    padding: 0 12px;
+    font-size: 1.2rem;
+}
+
+#viewer-toolbar #viewer-reset {
+    font-size: 0.9rem;
+}
+
+.viewer-nav {
+    position: absolute;
+    top: calc(50% - 28px);
+    transform: translateY(-50%);
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 2rem;
+    line-height: 1;
+}
+
+#viewer .viewer-nav {
+    background: rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+#viewer .viewer-nav:hover {
+    background: rgba(0, 0, 0, 0.75);
+}
+
+#viewer-prev {
+    left: 16px;
+}
+
+#viewer-next {
+    right: 16px;
+}
+
+#viewer-help {
+    position: absolute;
+    top: 12px;
+    left: 0;
+    right: 0;
+    margin: 0;
+    text-align: center;
+    color: rgba(244, 241, 232, 0.6);
+    font-size: 0.8rem;
+    pointer-events: none;
+}
+
+@media (max-width: 600px) {
+    #viewer-help,
+    #viewer-status {
+        display: none;
+    }
+
+    .viewer-nav {
+        width: 44px;
+        height: 44px;
+    }
+}

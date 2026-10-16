@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
 </head>
 <body>
     <header>
@@ -22,8 +23,9 @@
             <div id="carousel">
                 <div id="carousel-frame">
                     <button id="photo-prev" aria-label="Previous photo">&lsaquo;</button>
-                    <img id="training-image" alt="Training image from iNaturalist">
+                    <img id="training-image" alt="Training image from iNaturalist" title="Click to zoom">
                     <button id="photo-next" aria-label="Next photo">&rsaquo;</button>
+                    <button id="photo-zoom" aria-label="Zoom photo" title="Zoom (full resolution)">&#x2922;</button>
                 </div>
                 <p id="photo-counter"></p>
             </div>
@@ -50,6 +52,24 @@
             </div>
         </section>
     </main>
+
+    <!-- Full-screen viewer for zooming into the full-resolution photo -->
+    <div id="viewer" role="dialog" aria-modal="true" aria-label="Zoomed photo" hidden>
+        <div id="viewer-stage">
+            <img id="viewer-image" alt="Zoomed training image" draggable="false">
+        </div>
+        <button id="viewer-prev" class="viewer-nav" aria-label="Previous photo">&lsaquo;</button>
+        <button id="viewer-next" class="viewer-nav" aria-label="Next photo">&rsaquo;</button>
+        <div id="viewer-toolbar">
+            <span id="viewer-counter"></span>
+            <span id="viewer-status"></span>
+            <button id="viewer-zoom-out" aria-label="Zoom out">&minus;</button>
+            <button id="viewer-reset">Fit</button>
+            <button id="viewer-zoom-in" aria-label="Zoom in">+</button>
+            <button id="viewer-close" aria-label="Close">&times;</button>
+        </div>
+        <p id="viewer-help">Scroll or pinch to zoom &middot; drag to move &middot; double-click to zoom in/out &middot; Esc to close</p>
+    </div>
 
     <script>
         function getQueryParam(name) {
@@ -153,7 +173,8 @@
         let excludedIds = [];
         let lifeStageFilter = null; // { termId, valueId } when filtering by life stage
         let queue = []; // observations fetched but not yet shown
-        let photoUrls = []; // photos of the observation being shown
+        let photoUrls = []; // photos of the observation being shown (medium size)
+        let photoOriginalUrls = []; // the same photos at full resolution, for the zoom viewer
         let photoIndex = 0;
 
         let map, mapLayers;
@@ -224,7 +245,119 @@
             photoIndex = (index + photoUrls.length) % photoUrls.length;
             document.getElementById('training-image').src = photoUrls[photoIndex];
             document.getElementById('photo-counter').textContent = `Photo ${photoIndex + 1} of ${photoUrls.length}`;
+            if (viewerOpen()) showViewerPhoto();
         }
+
+        // ---------- Zoom viewer ----------
+
+        const viewer = document.getElementById('viewer');
+        const viewerImage = document.getElementById('viewer-image');
+        // If the Panzoom library failed to load, the rest of the trainer still works, just without zoom.
+        // (Panzoom's own contain: 'outside' option is not used: it miscalculates the minimum scale once
+        // zoomed, so the photo can get stuck zoomed in. clampPan() keeps the photo in view instead.)
+        const panzoom = window.Panzoom
+            ? Panzoom(viewerImage, { maxScale: 8, minScale: 1, step: 0.4 })
+            : null;
+        if (!panzoom) {
+            document.getElementById('photo-zoom').hidden = true;
+            document.getElementById('training-image').title = '';
+        }
+        let viewerOpener = null; // element to give focus back to on close
+
+        function viewerOpen() {
+            return !viewer.hidden;
+        }
+
+        // Pull the photo back if it has been dragged or zoomed out past its edges. The bounds use the
+        // photo itself rather than the letterboxed element, so e.g. a portrait photo stays centred
+        // horizontally until it is zoomed wider than the screen.
+        function clampPan(animate = true) {
+            const stage = document.getElementById('viewer-stage');
+            const width = stage.clientWidth, height = stage.clientHeight;
+            const ratio = viewerImage.naturalWidth && viewerImage.naturalHeight
+                ? viewerImage.naturalWidth / viewerImage.naturalHeight
+                : width / height;
+            const photoWidth = Math.min(width, height * ratio), photoHeight = Math.min(height, width / ratio);
+            const scale = panzoom.getScale(), pan = panzoom.getPan();
+            // Panzoom renders "scale(s) translate(x, y)", so a pan of x moves the photo by s * x on screen
+            const maxX = Math.max(0, (scale * photoWidth - width) / 2) / scale;
+            const maxY = Math.max(0, (scale * photoHeight - height) / 2) / scale;
+            const x = Math.min(maxX, Math.max(-maxX, pan.x));
+            const y = Math.min(maxY, Math.max(-maxY, pan.y));
+            if (x !== pan.x || y !== pan.y) panzoom.pan(x, y, { animate });
+        }
+
+        // Run a zoom action, then keep the photo in view
+        function zoomAnd(action) {
+            action();
+            clampPan();
+        }
+
+        // Show the current photo in the viewer: the medium image straight away (already loaded),
+        // then the full-resolution one once it has downloaded
+        function showViewerPhoto() {
+            const index = photoIndex;
+            panzoom.reset({ animate: false });
+            viewerImage.src = photoUrls[index];
+            const multiple = photoUrls.length > 1;
+            document.getElementById('viewer-counter').textContent = multiple ? `Photo ${index + 1} of ${photoUrls.length}` : '';
+            document.getElementById('viewer-prev').hidden = !multiple;
+            document.getElementById('viewer-next').hidden = !multiple;
+
+            const status = document.getElementById('viewer-status');
+            status.textContent = 'Loading full resolution\u2026';
+            const full = new Image();
+            full.onload = () => {
+                if (index !== photoIndex || !viewerOpen()) return; // user moved on meanwhile
+                viewerImage.src = full.src;
+                status.textContent = '';
+            };
+            full.onerror = () => {
+                if (index === photoIndex) status.textContent = 'Full resolution unavailable';
+            };
+            full.src = photoOriginalUrls[index];
+        }
+
+        function openViewer() {
+            if (!panzoom || !photoUrls.length) return;
+            viewerOpener = document.activeElement;
+            viewer.hidden = false;
+            document.body.classList.add('viewer-active');
+            showViewerPhoto();
+            document.getElementById('viewer-close').focus();
+        }
+
+        function closeViewer() {
+            if (!viewerOpen()) return;
+            viewer.hidden = true;
+            document.body.classList.remove('viewer-active');
+            if (viewerOpener && viewerOpener.focus) viewerOpener.focus({ preventScroll: true });
+        }
+
+        document.getElementById('training-image').addEventListener('click', openViewer);
+        document.getElementById('photo-zoom').addEventListener('click', openViewer);
+        document.getElementById('viewer-close').addEventListener('click', closeViewer);
+        document.getElementById('viewer-zoom-in').addEventListener('click', () => zoomAnd(() => panzoom.zoomIn()));
+        document.getElementById('viewer-zoom-out').addEventListener('click', () => zoomAnd(() => panzoom.zoomOut()));
+        document.getElementById('viewer-reset').addEventListener('click', () => panzoom.reset());
+        document.getElementById('viewer-prev').addEventListener('click', () => showPhoto(photoIndex - 1));
+        document.getElementById('viewer-next').addEventListener('click', () => showPhoto(photoIndex + 1));
+        // A larger step than the buttons' so one mouse-wheel notch zooms ~35% (trackpads send many small events)
+        document.getElementById('viewer-stage').addEventListener('wheel', event => {
+            zoomAnd(() => panzoom.zoomWithWheel(event, { step: 0.9 }));
+        }, { passive: false });
+        viewerImage.addEventListener('dblclick', event => {
+            if (panzoom.getScale() > 1.05) panzoom.reset();
+            else zoomAnd(() => panzoom.zoomToPoint(3, event));
+        });
+        // After a drag or pinch, and when the window is resized or the full-resolution photo arrives
+        viewerImage.addEventListener('panzoomend', () => clampPan());
+        viewerImage.addEventListener('load', () => { if (viewerOpen()) clampPan(false); });
+        window.addEventListener('resize', () => { if (viewerOpen()) clampPan(false); });
+        // Clicking the dark background around the photo closes the viewer
+        document.getElementById('viewer-stage').addEventListener('click', event => {
+            if (event.target.id === 'viewer-stage') closeViewer();
+        });
 
         function observationsURL(extraParams) {
             return 'https://api.inaturalist.org/v1/observations'
@@ -278,6 +411,7 @@
                 nextBtn.style.display = 'none';
                 showIdBtn.style.display = 'none';
                 showIdBtn.textContent = 'Show ID';
+                closeViewer();
                 idVisible = false;
                 resetGuess(false);
 
@@ -304,6 +438,7 @@
                 const randomObs = queue.pop();
 
                 photoUrls = randomObs.photos.map(photo => photo.url.replace('square', 'medium'));
+                photoOriginalUrls = randomObs.photos.map(photo => photo.url.replace('square', 'original'));
                 const multiple = photoUrls.length > 1;
                 document.getElementById('photo-prev').style.visibility = multiple ? 'visible' : 'hidden';
                 document.getElementById('photo-next').style.visibility = multiple ? 'visible' : 'hidden';
@@ -420,12 +555,32 @@
         document.getElementById('photo-prev').addEventListener('click', () => showPhoto(photoIndex - 1));
         document.getElementById('photo-next').addEventListener('click', () => showPhoto(photoIndex + 1));
         document.addEventListener('keydown', event => {
+            if (viewerOpen()) {
+                if (event.key === 'Escape') closeViewer();
+                else if (event.key === 'ArrowLeft') showPhoto(photoIndex - 1);
+                else if (event.key === 'ArrowRight') showPhoto(photoIndex + 1);
+                else if (event.key === '+' || event.key === '=') zoomAnd(() => panzoom.zoomIn());
+                else if (event.key === '-') zoomAnd(() => panzoom.zoomOut());
+                else if (event.key === '0') panzoom.reset();
+                else if (event.key === 'Tab') trapFocus(event);
+                else return;
+                if (event.key !== 'Tab') event.preventDefault();
+                return;
+            }
             if (document.getElementById('specimen').style.display === 'none' || photoUrls.length < 2) return;
             if (event.target.closest('#map')) return; // arrow keys pan the map when it has focus
             if (event.target.matches('input, textarea')) return; // arrow keys move the text cursor
             if (event.key === 'ArrowLeft') showPhoto(photoIndex - 1);
             if (event.key === 'ArrowRight') showPhoto(photoIndex + 1);
         });
+
+        // Keep keyboard focus inside the viewer while it is open
+        function trapFocus(event) {
+            const focusable = [...viewer.querySelectorAll('button')].filter(b => !b.hidden);
+            const first = focusable[0], last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) { last.focus(); event.preventDefault(); }
+            else if (!event.shiftKey && document.activeElement === last) { first.focus(); event.preventDefault(); }
+        }
 
         document.getElementById('next-btn').addEventListener('click', () => fetchRandomObservation());
 
