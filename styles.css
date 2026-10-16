@@ -179,7 +179,17 @@ input[type="text"] {
     min-width: 0;
 }
 
-input[type="text"]:focus {
+select {
+    font: inherit;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-muted);
+    color: var(--text);
+}
+
+input[type="text"]:focus,
+select:focus {
     border-color: var(--primary);
     background: var(--surface);
 }
@@ -206,11 +216,33 @@ input[type="text"]:disabled {
     font-size: 1.05rem;
 }
 
-.start-card input[type="text"] {
+.start-card input[type="text"],
+.start-card select {
     display: block;
     width: 100%;
     margin-bottom: 16px;
     font-size: 1.05rem;
+}
+
+.hint {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: -8px 0 16px;
+}
+
+.start-card p.hint {
+    font-size: 0.85rem;
+}
+
+.field-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.optional {
+    color: var(--text-muted);
+    font-weight: normal;
 }
 
 .step-label {

@@ -59,18 +59,28 @@
 
         const taxon = getQueryParam('taxon');
         const region = getQueryParam('region');
+        // Taxa within the selected one to leave out, e.g. "Papilionoidea, Hesperiidae"
+        const excludeNames = getQueryParam('exclude').split(',').map(name => name.trim()).filter(Boolean);
+        const lifeStage = getQueryParam('lifestage'); // e.g. "larva"
         let idVisible = false;
         let currentTaxon = null; // taxon of the observation being shown
 
         // Print regionName for debugging
         console.log('Region from query param:', region);
 
-        function setTitle(taxonName, regionName) {
-            const text = `Training for ${taxonName || 'all organisms'} of ${regionName || 'the world'}`;
+        const LIFE_STAGE_PLURALS = {
+            adult: 'adults', larva: 'larvae', pupa: 'pupae', egg: 'eggs', nymph: 'nymphs',
+            juvenile: 'juveniles', teneral: 'tenerals', subimago: 'subimagos'
+        };
+
+        function setTitle(taxonName, regionName, excludedNames = []) {
+            const excluded = excludedNames.length ? ` (excluding ${excludedNames.join(', ')})` : '';
+            const stage = lifeStage ? ` \u2014 ${LIFE_STAGE_PLURALS[lifeStage.toLowerCase()] || lifeStage} only` : '';
+            const text = `Training for ${taxonName || 'all organisms'}${excluded} of ${regionName || 'the world'}${stage}`;
             document.getElementById('title').textContent = text;
             document.title = `${text} — iNat ID trainer`;
         }
-        setTitle(taxon, region);
+        setTitle(taxon, region, excludeNames);
 
         // Fetch JSON from the iNaturalist API, retrying on rate limits (429),
         // server errors (5xx) and network failures with exponential backoff.
@@ -113,9 +123,35 @@
             return data.results[0]; // Return the first matching taxon
         }
 
+        // Find a taxon to exclude. The search is limited to descendants of the selected taxon,
+        // and only an exact name match is accepted: autocomplete is fuzzy, so e.g. "Aves"
+        // within Lepidoptera would otherwise match the moth Pseudergolis avesta.
+        async function fetchExcludedTaxon(name, parentTaxon) {
+            const data = await fetchJSON('https://api.inaturalist.org/v1/taxa/autocomplete'
+                + `?q=${encodeURIComponent(name)}&taxon_id=${parentTaxon.id}&per_page=30`);
+            const wanted = normalizeName(name);
+            const match = (data.results || []).find(t =>
+                normalizeName(t.name) === wanted || (t.matched_term && normalizeName(t.matched_term) === wanted));
+            if (!match) {
+                throw new Error(`Couldn't find a taxon called "${name}" within ${parentTaxon.name} to exclude. Check the spelling.`);
+            }
+            return match;
+        }
+
+        // Look up the annotation IDs for a life stage name, e.g. "larva" -> term 1, value 6
+        async function fetchLifeStageFilter(name) {
+            const data = await fetchJSON('https://api.inaturalist.org/v1/controlled_terms');
+            const term = (data.results || []).find(t => t.label === 'Life Stage');
+            const value = term && term.values.find(v => v.label.toLowerCase() === name.toLowerCase());
+            if (!value) throw new Error(`Unknown life stage "${name}"`);
+            return { termId: term.id, valueId: value.id };
+        }
+
         const PER_PAGE = 50;
         const MAX_RESULTS = 10000; // the API refuses pages beyond page * per_page > 10000
         let placeId, taxonId, totalResults;
+        let excludedIds = [];
+        let lifeStageFilter = null; // { termId, valueId } when filtering by life stage
         let queue = []; // observations fetched but not yet shown
         let photoUrls = []; // photos of the observation being shown
         let photoIndex = 0;
@@ -198,6 +234,8 @@
                 + '&quality_grade=research'
                 + '&photos=true'
                 + '&order_by=random'
+                + (excludedIds.length ? '&without_taxon_id=' + excludedIds.join(',') : '')
+                + (lifeStageFilter ? `&term_id=${lifeStageFilter.termId}&term_value_id=${lifeStageFilter.valueId}` : '')
                 + extraParams;
         }
 
@@ -246,12 +284,18 @@
                 if (placeId === undefined || taxonId === undefined) {
                     const place = await fetchPlaceID(region);
                     const matchedTaxon = await fetchTaxonID(taxon);
+                    const excludedTaxa = [];
+                    for (const name of excludeNames) {
+                        excludedTaxa.push(await fetchExcludedTaxon(name, matchedTaxon));
+                    }
+                    if (lifeStage) lifeStageFilter = await fetchLifeStageFilter(lifeStage);
                     placeId = place.id;
                     taxonId = matchedTaxon.id;
+                    excludedIds = excludedTaxa.map(t => t.id);
                     // Show what iNaturalist actually matched, which may differ from what was typed
-                    setTitle(matchedTaxon.name, place.display_name);
+                    setTitle(matchedTaxon.name, place.display_name, excludedTaxa.map(t => t.name));
                 }
-                console.log('Using place ID:', placeId, 'taxon ID:', taxonId);
+                console.log('Using place ID:', placeId, 'taxon ID:', taxonId, 'excluded taxon IDs:', excludedIds);
 
                 if (queue.length === 0) await refillQueue();
                 if (queue.length === 0) {

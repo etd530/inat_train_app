@@ -18,6 +18,8 @@
                 <div class="step-label">Step 1 of 2</div>
                 <p><label for="taxonomic-group">Which taxonomic group would you like to practice identifying?</label></p>
                 <input type="text" id="taxonomic-group" name="taxonomic-group" placeholder="e.g. Aves, Lepidoptera, Viridiplantae">
+                <label class="field-label" for="exclude">Exclude groups within it <span class="optional">(optional, separate with commas)</span></label>
+                <input type="text" id="exclude" name="exclude" placeholder="e.g. Papilionoidea, Hesperiidae">
                 <div class="button-row">
                     <button id="taxon-continue" class="primary">Continue</button>
                 </div>
@@ -27,6 +29,11 @@
                 <div class="step-label">Step 2 of 2</div>
                 <p><label for="region">Which geographic region do you want to train for?</label></p>
                 <input type="text" id="region" name="region" placeholder="e.g. Global, Nearctic, Neotropics, Europe">
+                <label class="field-label" for="lifestage">Life stage <span class="optional">(optional)</span></label>
+                <select id="lifestage" name="lifestage">
+                    <option value="">Any life stage</option>
+                </select>
+                <p class="hint">Filtering by life stage only includes observations where someone has annotated the life stage, so fewer observations will be available.</p>
                 <div class="button-row">
                     <button id="region-continue" class="primary">Start training</button>
                     <button id="region-back">Back</button>
@@ -43,6 +50,41 @@
         const taxonStep = document.getElementById('taxon-step');
         const regionStep = document.getElementById('region-step');
 
+        // Fill the life stage menu with the stages iNaturalist allows for the chosen group
+        // (e.g. no "Nymph" for butterflies). If anything fails, only "Any life stage" is offered.
+        let lifeStageTerm; // cached Life Stage controlled term
+        let lifeStageRequest = 0; // lets a newer call win if the group is changed quickly
+        async function populateLifeStages(group) {
+            const request = ++lifeStageRequest;
+            const select = document.getElementById('lifestage');
+            const previous = select.value;
+            select.replaceChildren(new Option('Any life stage', ''));
+            try {
+                if (!lifeStageTerm) {
+                    const response = await fetch('https://api.inaturalist.org/v1/controlled_terms');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const terms = (await response.json()).results;
+                    lifeStageTerm = terms.find(term => term.label === 'Life Stage');
+                }
+                let lineage = null; // the group's taxon ID and its ancestors' IDs
+                if (group) {
+                    const response = await fetch(`https://api.inaturalist.org/v1/taxa/autocomplete?q=${encodeURIComponent(group)}&per_page=1`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const match = (await response.json()).results[0];
+                    if (match) lineage = [...(match.ancestor_ids || []), match.id];
+                }
+                if (request !== lifeStageRequest) return;
+                for (const value of lifeStageTerm.values) {
+                    // A value applies if one of its taxa is the group or one of its ancestors
+                    const applies = !lineage || !value.taxon_ids || value.taxon_ids.some(id => lineage.includes(id));
+                    if (applies) select.add(new Option(value.label, value.label.toLowerCase()));
+                }
+                select.value = [...select.options].some(o => o.value === previous) ? previous : '';
+            } catch (err) {
+                console.warn('Could not load life stages:', err);
+            }
+        }
+
         function showStep(step) {
             taxonStep.style.display = step === 'taxon' ? '' : 'none';
             regionStep.style.display = step === 'region' ? '' : 'none';
@@ -50,7 +92,7 @@
 
         taxonContinue.addEventListener('click', function() {
             const group = document.getElementById('taxonomic-group').value.trim();
-            // Optionally validate group here
+            populateLifeStages(group);
             showStep('region');
             document.getElementById('region').focus();
         });
@@ -63,15 +105,22 @@
         regionContinue.addEventListener('click', function() {
             const group = document.getElementById('taxonomic-group').value.trim();
             const region = document.getElementById('region').value.trim();
-            // Navigate to training.html with taxon and region as query params
+            const exclude = document.getElementById('exclude').value.trim();
+            const lifeStage = document.getElementById('lifestage').value;
+            // Navigate to training.html with taxon, exclusions, region and life stage as query params
             const params = new URLSearchParams();
             if (group) params.append('taxon', group);
+            if (exclude) params.append('exclude', exclude);
             if (region) params.append('region', region);
+            if (lifeStage) params.append('lifestage', lifeStage);
             window.location.href = 'training.html' + (params.toString() ? '?' + params.toString() : '');
         });
 
         // Pressing Enter in a text box continues to the next step
         document.getElementById('taxonomic-group').addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') taxonContinue.click();
+        });
+        document.getElementById('exclude').addEventListener('keydown', function(event) {
             if (event.key === 'Enter') taxonContinue.click();
         });
         document.getElementById('region').addEventListener('keydown', function(event) {
