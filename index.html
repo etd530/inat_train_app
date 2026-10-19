@@ -28,7 +28,11 @@
             <div id="region-step" style="display:none;">
                 <div class="step-label">Step 2 of 2</div>
                 <p><label for="region">Which geographic region do you want to train for?</label></p>
-                <input type="text" id="region" name="region" placeholder="e.g. Global, Nearctic, Neotropics, Europe">
+                <div class="suggest-wrap">
+                    <input type="text" id="region" name="region" placeholder="e.g. Spain, Catalonia, California, Europe">
+                    <ul id="region-suggestions" hidden></ul>
+                </div>
+                <p class="hint">Pick a place from the suggestions. Leave empty to train on observations from anywhere.</p>
                 <label class="field-label" for="lifestage">Life stage <span class="optional">(optional)</span></label>
                 <select id="lifestage" name="lifestage">
                     <option value="">Any life stage</option>
@@ -42,6 +46,8 @@
         </section>
     </main>
 
+    <script src="suggest.js"></script>
+    <script src="places.js"></script>
     <script>
         const taxonContinue = document.getElementById('taxon-continue');
         const regionContinue = document.getElementById('region-continue');
@@ -102,16 +108,59 @@
             document.getElementById('taxonomic-group').focus();
         });
 
+        // ---------- Region suggestions ----------
+
+        const regionInput = document.getElementById('region');
+        let selectedPlace = null; // { id, name } once the user picks a suggestion
+
+        function choosePlace(place) {
+            selectedPlace = { id: place.id, name: place.display_name };
+            regionInput.value = place.display_name;
+        }
+
+        const regionSuggestions = attachSuggestions(regionInput, document.getElementById('region-suggestions'), {
+            search: query => searchPlaces(query),
+            renderItem: place => {
+                const name = document.createElement('span');
+                name.textContent = place.display_name;
+                const type = document.createElement('span');
+                type.className = 'suggestion-meta';
+                type.textContent = placeTypeLabel(place);
+                return [name, type];
+            },
+            onChoose: choosePlace
+        });
+
+        regionInput.addEventListener('input', () => {
+            selectedPlace = null; // typing again discards an earlier pick
+        });
+
+        // Enter with no suggestion highlighted starts training
+        regionInput.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.defaultPrevented) {
+                event.preventDefault();
+                regionContinue.click();
+            }
+        });
+
         regionContinue.addEventListener('click', function() {
             const group = document.getElementById('taxonomic-group').value.trim();
             const region = document.getElementById('region').value.trim();
+            // If a place was typed but not picked, use the top suggestion shown for that text
+            const top = regionSuggestions.topFor(region);
+            if (region && !selectedPlace && top) choosePlace(top);
             const exclude = document.getElementById('exclude').value.trim();
             const lifeStage = document.getElementById('lifestage').value;
             // Navigate to training.html with taxon, exclusions, region and life stage as query params
             const params = new URLSearchParams();
             if (group) params.append('taxon', group);
             if (exclude) params.append('exclude', exclude);
-            if (region) params.append('region', region);
+            if (selectedPlace) {
+                params.append('region', selectedPlace.name);
+                params.append('place_id', selectedPlace.id);
+            } else if (region) {
+                params.append('region', region);
+            }
             if (lifeStage) params.append('lifestage', lifeStage);
             window.location.href = 'training.html' + (params.toString() ? '?' + params.toString() : '');
         });
@@ -122,9 +171,6 @@
         });
         document.getElementById('exclude').addEventListener('keydown', function(event) {
             if (event.key === 'Enter') taxonContinue.click();
-        });
-        document.getElementById('region').addEventListener('keydown', function(event) {
-            if (event.key === 'Enter') regionContinue.click();
         });
     </script>
 </body>

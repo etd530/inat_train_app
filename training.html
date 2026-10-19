@@ -39,7 +39,10 @@
             <form id="guess-form" style="display:none;" autocomplete="off">
                 <label for="guess">Your identification</label>
                 <div class="guess-row">
-                    <input type="text" id="guess" placeholder="Scientific name, e.g. Pararge aegeria">
+                    <div class="suggest-wrap">
+                        <input type="text" id="guess" placeholder="Start typing a name, e.g. Pararge aegeria">
+                        <ul id="guess-suggestions" hidden></ul>
+                    </div>
                     <button type="submit" id="guess-submit" class="primary">Submit</button>
                 </div>
             </form>
@@ -71,6 +74,8 @@
         <p id="viewer-help">Scroll or pinch to zoom &middot; drag to move &middot; double-click to zoom in/out &middot; Esc to close</p>
     </div>
 
+    <script src="suggest.js"></script>
+    <script src="places.js"></script>
     <script>
         function getQueryParam(name) {
             const params = new URLSearchParams(window.location.search);
@@ -79,6 +84,7 @@
 
         const taxon = getQueryParam('taxon');
         const region = getQueryParam('region');
+        const placeIdParam = getQueryParam('place_id'); // set when a place was picked from the suggestions
         // Taxa within the selected one to leave out, e.g. "Papilionoidea, Hesperiidae"
         const excludeNames = getQueryParam('exclude').split(',').map(name => name.trim()).filter(Boolean);
         const lifeStage = getQueryParam('lifestage'); // e.g. "larva"
@@ -127,12 +133,18 @@
             }
         }
 
-        async function fetchPlaceID(regionName) {
-            const data = await fetchJSON(`https://api.inaturalist.org/v1/places/autocomplete?q=${encodeURIComponent(regionName)}`);
-            if (!data.results || data.results.length === 0) {
-                throw new Error(`No matching place found for "${regionName}"`);
+        // The place to train on: the one picked on the start page, else the best match for the typed
+        // name (the same ranking the suggestions use), else null for anywhere in the world
+        async function fetchPlace() {
+            if (placeIdParam) {
+                const data = await fetchJSON(`https://api.inaturalist.org/v1/places/${encodeURIComponent(placeIdParam)}`);
+                if (!data.results || data.results.length === 0) throw new Error(`No place found with ID ${placeIdParam}`);
+                return data.results[0];
             }
-            return data.results[0]; // Return the first matching place
+            if (!region) return null;
+            const places = await searchPlaces(region, 1);
+            if (places.length === 0) throw new Error(`No matching place found for "${region}"`);
+            return places[0];
         }
 
         async function fetchTaxonID(taxonName) {
@@ -169,7 +181,8 @@
 
         const PER_PAGE = 50;
         const MAX_RESULTS = 10000; // the API refuses pages beyond page * per_page > 10000
-        let placeId, taxonId, totalResults;
+        let placeId, taxonId, totalResults; // placeId is null when training on the whole world
+        let filtersResolved = false;
         let excludedIds = [];
         let lifeStageFilter = null; // { termId, valueId } when filtering by life stage
         let queue = []; // observations fetched but not yet shown
@@ -362,7 +375,7 @@
         function observationsURL(extraParams) {
             return 'https://api.inaturalist.org/v1/observations'
                 + '?taxon_id=' + taxonId
-                + '&place_id=' + placeId
+                + (placeId ? '&place_id=' + placeId : '')
                 + '&verifiable=true'
                 + '&quality_grade=research'
                 + '&photos=true'
@@ -415,19 +428,20 @@
                 idVisible = false;
                 resetGuess(false);
 
-                if (placeId === undefined || taxonId === undefined) {
-                    const place = await fetchPlaceID(region);
+                if (!filtersResolved) {
+                    const place = await fetchPlace();
                     const matchedTaxon = await fetchTaxonID(taxon);
                     const excludedTaxa = [];
                     for (const name of excludeNames) {
                         excludedTaxa.push(await fetchExcludedTaxon(name, matchedTaxon));
                     }
                     if (lifeStage) lifeStageFilter = await fetchLifeStageFilter(lifeStage);
-                    placeId = place.id;
+                    placeId = place ? place.id : null;
                     taxonId = matchedTaxon.id;
                     excludedIds = excludedTaxa.map(t => t.id);
+                    filtersResolved = true;
                     // Show what iNaturalist actually matched, which may differ from what was typed
-                    setTitle(matchedTaxon.name, place.display_name, excludedTaxa.map(t => t.name));
+                    setTitle(matchedTaxon.name, place && place.display_name, excludedTaxa.map(t => t.name));
                 }
                 console.log('Using place ID:', placeId, 'taxon ID:', taxonId, 'excluded taxon IDs:', excludedIds);
 
@@ -525,6 +539,7 @@
         // Clear the previous guess; show the form only when there is a specimen to guess
         function resetGuess(show) {
             const input = document.getElementById('guess');
+            guessSuggestions.clear();
             input.value = '';
             input.disabled = false;
             document.getElementById('guess-submit').disabled = false;
@@ -533,11 +548,51 @@
             if (show && currentTaxon) input.focus({ preventScroll: true }); // keep the photo in view on small screens
         }
 
+        // One row of the answer suggestions: the name (italic for genus and below), its common name,
+        // the name that matched if it was a different one (e.g. an old synonym), and the rank
+        function renderTaxonSuggestion(t) {
+            const main = document.createElement('span');
+            const name = document.createElement(t.rank_level <= 20 ? 'em' : 'span');
+            name.textContent = t.name;
+            main.append(name);
+            const others = [];
+            if (t.preferred_common_name) others.push(t.preferred_common_name);
+            const matched = t.matched_term && normalizeName(t.matched_term);
+            if (matched && matched !== normalizeName(t.name)
+                && matched !== normalizeName(t.preferred_common_name || '')) {
+                others.push(`matches \u201c${t.matched_term}\u201d`);
+            }
+            if (others.length) {
+                const extra = document.createElement('span');
+                extra.className = 'suggestion-meta';
+                extra.textContent = ` \u00b7 ${others.join(' \u00b7 ')}`;
+                main.append(extra);
+            }
+            const rank = document.createElement('span');
+            rank.className = 'suggestion-meta';
+            rank.textContent = t.rank;
+            return [main, rank];
+        }
+
+        // Suggest names within the group being trained on, so a misspelling or an outdated name
+        // doesn't cost a correct answer. Picking one fills in its current scientific name.
+        const guessInput = document.getElementById('guess');
+        const guessSuggestions = attachSuggestions(guessInput, document.getElementById('guess-suggestions'), {
+            search: async query => {
+                const data = await fetchJSON('https://api.inaturalist.org/v1/taxa/autocomplete'
+                    + `?q=${encodeURIComponent(query)}&taxon_id=${taxonId}&per_page=8`, 1);
+                return data.results || [];
+            },
+            renderItem: renderTaxonSuggestion,
+            onChoose: t => { guessInput.value = t.name; }
+        });
+
         document.getElementById('guess-form').addEventListener('submit', event => {
             event.preventDefault();
             const input = document.getElementById('guess');
             const guess = normalizeName(input.value);
             if (!guess || !currentTaxon) return;
+            guessSuggestions.clear();
 
             const { outcome, message } = checkGuess(guess, currentTaxon);
             const resultEl = document.getElementById('guess-result');

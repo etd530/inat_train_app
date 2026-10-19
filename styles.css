@@ -245,6 +245,63 @@ input[type="text"]:disabled {
     font-weight: normal;
 }
 
+/* Suggestions dropdown (places on the start page, taxa in the answer box) */
+.suggest-wrap {
+    position: relative;
+}
+
+.suggestions {
+    position: absolute;
+    top: calc(100% + 4px); /* an input's bottom margin collapses outside .suggest-wrap */
+    left: 0;
+    right: 0;
+    z-index: 10;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.suggestions[hidden] {
+    display: none;
+}
+
+.suggestions li {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.suggestions li:hover {
+    background: var(--surface-muted);
+    color: var(--primary);
+}
+
+.suggestions li[aria-selected="true"] {
+    background: var(--primary);
+    color: var(--primary-text);
+}
+
+.suggestions li[aria-selected="true"] .suggestion-meta {
+    color: inherit;
+    opacity: 0.85;
+}
+
+.suggestion-meta {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
 .step-label {
     color: var(--text-muted);
     font-size: 0.8rem;
@@ -393,8 +450,13 @@ input[type="text"]:disabled {
     gap: 8px;
 }
 
-.guess-row input[type="text"] {
+.guess-row .suggest-wrap {
     flex: 1;
+    min-width: 0;
+}
+
+.guess-row input[type="text"] {
+    width: 100%;
     font-size: 1.05rem;
 }
 
